@@ -16,6 +16,12 @@ if not os.path.exists(FILE):
     df.to_csv(FILE, index=False)
 
 df = pd.read_csv(FILE)
+# --- Fix missing columns (backward compatibility) ---
+required_cols = ["Day","Trade","Capital","Outcome","TradeSize","ConsecLoss"]
+
+for col in required_cols:
+    if col not in df.columns:
+        df[col] = 0
 
 # --- Inputs ---
 start_capital = st.number_input("Starting Capital", value=25000)
