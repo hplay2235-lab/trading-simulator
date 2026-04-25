@@ -3,42 +3,32 @@ import pandas as pd
 import os
 
 st.set_page_config(layout="centered")
-st.title("📊 Aggressive Trading System Tracker")
+st.title("📊 Trading Tracker (Stable Version)")
 
 FILE = "data.csv"
 
-# --- Initialize file ---
-if not os.path.exists(FILE):
-    df = pd.DataFrame(columns=[
-        "Day","Trade","Capital","Outcome","TradeSize","ConsecLoss"
-    ])
-    df.to_csv(FILE, index=False)
+# --- Load once ---
+if "df" not in st.session_state:
+    if os.path.exists(FILE):
+        st.session_state.df = pd.read_csv(FILE)
+    else:
+        st.session_state.df = pd.DataFrame(columns=[
+            "Day","Trade","Capital","Outcome","TradeSize","ConsecLoss"
+        ])
 
-df = pd.read_csv(FILE)
-
-# --- Ensure correct columns exist ---
-required_cols = ["Day","Trade","Capital","Outcome","TradeSize","ConsecLoss"]
-for col in required_cols:
-    if col not in df.columns:
-        df[col] = 0
-
-# --- Convert types safely ---
-df["Day"] = pd.to_numeric(df["Day"], errors="coerce").fillna(0).astype(int)
-df["Trade"] = pd.to_numeric(df["Trade"], errors="coerce").fillna(0).astype(int)
-df["Capital"] = pd.to_numeric(df["Capital"], errors="coerce").fillna(0.0)
-df["ConsecLoss"] = pd.to_numeric(df["ConsecLoss"], errors="coerce").fillna(0).astype(int)
+df = st.session_state.df
 
 # --- Inputs ---
 start_capital = st.number_input("Starting Capital (₹)", value=25000)
 
-# --- Current state ---
-if len(df) == 0 or df["Day"].max() == 0:
+# --- Initialize state ---
+if len(df) == 0:
     capital = start_capital
     day = 1
     consec_loss = 0
     trades_today = 0
 else:
-    day = df["Day"].max()
+    day = int(df["Day"].max())
     today_df = df[df["Day"] == day]
 
     if len(today_df) == 0:
@@ -46,8 +36,8 @@ else:
         consec_loss = 0
         trades_today = 0
     else:
-        capital = today_df.iloc[-1]["Capital"]
-        consec_loss = today_df.iloc[-1]["ConsecLoss"]
+        capital = float(today_df.iloc[-1]["Capital"])
+        consec_loss = int(today_df.iloc[-1]["ConsecLoss"])
         trades_today = len(today_df[today_df["Trade"] > 0])
 
 # --- Trade number ---
@@ -58,7 +48,7 @@ prev_outcome = None
 if trades_today > 0:
     prev_outcome = today_df.iloc[-1]["Outcome"]
 
-# --- Trade Size Logic ---
+# --- Trade size logic ---
 def get_trade_size(consec_loss, trade_no, prev_outcome):
     if trade_no == 1:
         if consec_loss >= 2:
@@ -68,15 +58,12 @@ def get_trade_size(consec_loss, trade_no, prev_outcome):
         else:
             return 0.4
     else:
-        if prev_outcome == "L":
-            return 0.25
-        else:
-            return 0.4
+        return 0.25 if prev_outcome == "L" else 0.4
 
 trade_size = get_trade_size(consec_loss, trade_no, prev_outcome)
 invested_amount = capital * trade_size
 
-# --- Display boxes ---
+# --- UI Boxes ---
 col1, col2 = st.columns(2)
 col1.metric("💰 Total Capital", f"₹{round(capital,2)}")
 col2.metric("📊 Invested Amount", f"₹{round(invested_amount,2)}")
@@ -102,19 +89,21 @@ if st.button("Add Trade") and allow_trade:
         capital -= capital * trade_size * 0.25
         consec_loss += 1
 
-    new_row = pd.DataFrame([{
+    new_row = {
         "Day": day,
         "Trade": trade_no,
         "Capital": capital,
         "Outcome": outcome,
         "TradeSize": trade_size,
         "ConsecLoss": consec_loss
-    }])
+    }
 
-    df = pd.concat([df, new_row], ignore_index=True)
-    df.to_csv(FILE, index=False)
+    st.session_state.df = pd.concat(
+        [st.session_state.df, pd.DataFrame([new_row])],
+        ignore_index=True
+    )
 
-    st.success(f"Trade {trade_no} recorded!")
+    st.session_state.df.to_csv(FILE, index=False)
     st.rerun()
 
 # --- Next Day ---
@@ -123,31 +112,39 @@ if st.button("➡️ Start Next Day"):
         st.warning("No trades today yet")
     else:
         new_day = day + 1
-        new_row = pd.DataFrame([{
+
+        new_row = {
             "Day": new_day,
             "Trade": 0,
             "Capital": capital,
             "Outcome": "-",
             "TradeSize": 0,
             "ConsecLoss": consec_loss
-        }])
+        }
 
-        df = pd.concat([df, new_row], ignore_index=True)
-        df.to_csv(FILE, index=False)
+        st.session_state.df = pd.concat(
+            [st.session_state.df, pd.DataFrame([new_row])],
+            ignore_index=True
+        )
 
-        st.success(f"Moved to Day {new_day}")
+        st.session_state.df.to_csv(FILE, index=False)
         st.rerun()
 
 # --- Reset ---
 if st.button("🔄 Reset to Day 1"):
+    st.session_state.df = pd.DataFrame(columns=[
+        "Day","Trade","Capital","Outcome","TradeSize","ConsecLoss"
+    ])
     if os.path.exists(FILE):
         os.remove(FILE)
-    st.success("Reset done. Refresh app.")
+    st.rerun()
 
 # --- Display ---
 st.subheader("📋 Trade History")
-st.dataframe(df, use_container_width=True)
+st.dataframe(st.session_state.df, use_container_width=True)
 
-if len(df) > 0:
+if len(st.session_state.df) > 0:
     st.subheader("📈 Equity Curve")
-    st.line_chart(df[df["Trade"] > 0].set_index("Day")["Capital"])
+    chart_df = st.session_state.df[st.session_state.df["Trade"] > 0]
+    if not chart_df.empty:
+        st.line_chart(chart_df.set_index("Day")["Capital"])
