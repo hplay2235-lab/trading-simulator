@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import random
-import matplotlib.pyplot as plt
+st.line_chart(df["Capital"])
 
 st.title("📊 30-Day Trading Simulator")
 
