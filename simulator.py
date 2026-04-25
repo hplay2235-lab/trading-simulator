@@ -131,3 +131,22 @@ if st.button("Reset"):
     
     st.success("Reset successful")
     st.rerun()
+# --- Day-wise Summary ---
+if len(st.session_state.df) > 0:
+
+    df_full = st.session_state.df.copy()
+
+    # Remove dummy rows if any
+    df_full = df_full[df_full["Trade"] > 0]
+
+    if not df_full.empty:
+
+        day_summary = df_full.groupby("Day").agg(
+            Start_Capital=("Capital", "first"),
+            End_Capital=("Capital", "last")
+        ).reset_index()
+
+        day_summary["Daily_PnL"] = day_summary["End_Capital"] - day_summary["Start_Capital"]
+
+        st.subheader("📅 Day-wise Summary")
+        st.dataframe(day_summary, use_container_width=True)
