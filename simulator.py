@@ -125,5 +125,9 @@ if st.button("Reset"):
     st.session_state.df = pd.DataFrame(columns=[
         "Day","Trade","Capital","Outcome","TradeSize","ConsecLoss"
     ])
+    
     if os.path.exists(FILE):
-        os
+        os.remove(FILE)
+    
+    st.success("Reset successful")
+    st.rerun()
