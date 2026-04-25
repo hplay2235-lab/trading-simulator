@@ -1,59 +1,94 @@
 import streamlit as st
 import pandas as pd
-import random
+import os
 
-st.title("📊 30-Day Trading Simulator")
+st.set_page_config(layout="centered")
 
-capital_input = st.number_input("Starting Capital", value=10000)
+st.title("📊 Daily Trading Tracker")
+
+FILE = "data.csv"
+
+# --- Initialize ---
+if not os.path.exists(FILE):
+    df = pd.DataFrame(columns=["Day", "Capital", "Outcome", "Drawdown"])
+    df.to_csv(FILE, index=False)
+
+df = pd.read_csv(FILE)
+
+# --- Inputs ---
+capital_input = st.number_input("Starting Capital (₹)", value=10000)
 risk_input = st.number_input("Base Risk %", value=5.0) / 100
 reward_input = st.number_input("Reward %", value=10.0) / 100
-win_rate = st.slider("Win Probability", 0.1, 0.9, 0.5)
 
-if st.button("Run Simulation"):
+st.markdown("### Enter Today's Trade")
 
+outcome = st.selectbox("Outcome", ["W", "L"])
+
+# --- Get current state ---
+if len(df) == 0:
     capital = capital_input
     peak = capital
-    data = []
+    day = 1
+else:
+    capital = df.iloc[-1]["Capital"]
+    peak = max(df["Capital"])
+    day = len(df) + 1
 
-    for day in range(1, 31):
-        outcome = "W" if random.random() < win_rate else "L"
-        drawdown = (capital - peak) / peak
+# --- Add Trade ---
+if st.button("Add Trade"):
 
-        if drawdown > -0.1:
-            risk = risk_input
-        elif drawdown > -0.2:
-            risk = 0.03
-        elif drawdown > -0.3:
-            risk = 0.02
-        else:
-            risk = 0.01
+    drawdown = (capital - peak) / peak
 
-        if outcome == "W":
-            capital *= (1 + reward_input)
-        else:
-            capital *= (1 - risk)
+    # Dynamic risk logic
+    if drawdown > -0.1:
+        risk = risk_input
+    elif drawdown > -0.2:
+        risk = 0.03
+    elif drawdown > -0.3:
+        risk = 0.02
+    else:
+        risk = 0.01
 
-        peak = max(peak, capital)
+    # Apply trade
+    if outcome == "W":
+        capital = capital * (1 + reward_input)
+    else:
+        capital = capital * (1 - risk)
 
-        data.append({
-            "Day": day,
-            "Capital": capital,
-            "Outcome": outcome,
-            "Drawdown": drawdown
-        })
+    peak = max(peak, capital)
 
-    df = pd.DataFrame(data)
+    new_row = {
+        "Day": day,
+        "Capital": capital,
+        "Outcome": outcome,
+        "Drawdown": (capital - peak) / peak * 100
+    }
 
-    # ✅ Table
-    st.dataframe(df)
+    df = pd.concat([df, pd.DataFrame([new_row])])
+    df.to_csv(FILE, index=False)
 
-    # ✅ Chart (NOW in correct place)
+    st.success(f"Trade for Day {day} added!")
+
+# --- Display ---
+st.subheader("📋 Trade History")
+st.dataframe(df, use_container_width=True)
+
+if len(df) > 0:
+    st.subheader("📈 Equity Curve")
     st.line_chart(df.set_index("Day")["Capital"])
 
-    # ✅ Metrics
-    total_return = (capital / capital_input - 1) * 100
-    max_dd = df["Drawdown"].min() * 100
+    st.subheader("📊 Performance")
 
-    st.write(f"Final Capital: ₹{round(capital,2)}")
-    st.write(f"Return: {round(total_return,2)}%")
-    st.write(f"Max Drawdown: {round(max_dd,2)}%")
+    final_capital = df.iloc[-1]["Capital"]
+    total_return = (final_capital / capital_input - 1) * 100
+    max_dd = df["Drawdown"].min()
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Final Capital", f"₹{round(final_capital,2)}")
+    col2.metric("Return %", f"{round(total_return,2)}%")
+    col3.metric("Max Drawdown %", f"{round(max_dd,2)}%")
+
+# --- Reset Button ---
+if st.button("Reset All Data"):
+    os.remove(FILE)
+    st.warning("All data reset. Refresh app.")
