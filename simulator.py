@@ -3,92 +3,89 @@ import pandas as pd
 import os
 
 st.set_page_config(layout="centered")
-
-st.title("📊 Daily Trading Tracker")
+st.title("📊 Aggressive Trading System Tracker")
 
 FILE = "data.csv"
 
-# --- Initialize ---
+# Initialize
 if not os.path.exists(FILE):
-    df = pd.DataFrame(columns=["Day", "Capital", "Outcome", "Drawdown"])
+    df = pd.DataFrame(columns=[
+        "Day","Capital","Outcome","Trade","TradeSize",
+        "DailyResult","ConsecLoss"
+    ])
     df.to_csv(FILE, index=False)
 
 df = pd.read_csv(FILE)
 
-# --- Inputs ---
-capital_input = st.number_input("Starting Capital (₹)", value=10000)
-risk_input = st.number_input("Base Risk %", value=5.0) / 100
-reward_input = st.number_input("Reward %", value=10.0) / 100
+# Inputs
+start_capital = st.number_input("Starting Capital", value=25000)
 
-st.markdown("### Enter Today's Trade")
-
-outcome = st.selectbox("Outcome", ["W", "L"])
-
-# --- Get current state ---
+# Get current state
 if len(df) == 0:
-    capital = capital_input
-    peak = capital
+    capital = start_capital
     day = 1
+    consec_loss = 0
 else:
     capital = df.iloc[-1]["Capital"]
-    peak = max(df["Capital"])
-    day = len(df) + 1
+    day = int(df.iloc[-1]["Day"])
+    consec_loss = int(df.iloc[-1]["ConsecLoss"])
 
-# --- Add Trade ---
+st.markdown(f"### 💰 Current Capital: ₹{round(capital,2)}")
+
+# Trade input
+trade_no = st.selectbox("Trade Number", [1,2])
+outcome = st.selectbox("Outcome", ["W","L"])
+
+# --- Trade Size Logic ---
+def get_trade_size():
+    if consec_loss >= 2:
+        return 0.2
+    elif consec_loss == 1:
+        return 0.3
+    else:
+        return 0.4
+
+trade_size = get_trade_size()
+
+if trade_no == 2:
+    if outcome == "W":
+        trade_size = 0.4
+    else:
+        trade_size = 0.25
+
+st.write(f"📊 Trade Size: {int(trade_size*100)}%")
+
+# --- Execute Trade ---
 if st.button("Add Trade"):
 
-    drawdown = (capital - peak) / peak
+    global capital, consec_loss
 
-    # Dynamic risk logic
-    if drawdown > -0.1:
-        risk = risk_input
-    elif drawdown > -0.2:
-        risk = 0.03
-    elif drawdown > -0.3:
-        risk = 0.02
-    else:
-        risk = 0.01
-
-    # Apply trade
     if outcome == "W":
-        capital = capital * (1 + reward_input)
+        pnl = capital * trade_size * 0.5
+        capital += pnl
+        consec_loss = 0
     else:
-        capital = capital * (1 - risk)
-
-    peak = max(peak, capital)
+        pnl = capital * trade_size * 0.25
+        capital -= pnl
+        consec_loss += 1
 
     new_row = {
         "Day": day,
         "Capital": capital,
         "Outcome": outcome,
-        "Drawdown": (capital - peak) / peak * 100
+        "Trade": trade_no,
+        "TradeSize": trade_size,
+        "DailyResult": "",
+        "ConsecLoss": consec_loss
     }
 
     df = pd.concat([df, pd.DataFrame([new_row])])
     df.to_csv(FILE, index=False)
 
-    st.success(f"Trade for Day {day} added!")
+    st.success("Trade Recorded!")
 
-# --- Display ---
-st.subheader("📋 Trade History")
+# Display
 st.dataframe(df, use_container_width=True)
 
 if len(df) > 0:
-    st.subheader("📈 Equity Curve")
-    st.line_chart(df.set_index("Day")["Capital"])
-
-    st.subheader("📊 Performance")
-
-    final_capital = df.iloc[-1]["Capital"]
-    total_return = (final_capital / capital_input - 1) * 100
-    max_dd = df["Drawdown"].min()
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Final Capital", f"₹{round(final_capital,2)}")
-    col2.metric("Return %", f"{round(total_return,2)}%")
-    col3.metric("Max Drawdown %", f"{round(max_dd,2)}%")
-
-# --- Reset Button ---
-if st.button("Reset All Data"):
-    os.remove(FILE)
-    st.warning("All data reset. Refresh app.")
+    st.line_chart(df["Capital"])
