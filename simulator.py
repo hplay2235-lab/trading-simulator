@@ -1,13 +1,12 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
-import os
 
 st.set_page_config(layout="centered")
 st.title("📊 Trading Dashboard")
 
 # =========================
-# 🗄️ DATABASE SETUP
+# 🗄️ DATABASE
 # =========================
 
 conn = sqlite3.connect("trades.db", check_same_thread=False)
@@ -25,7 +24,6 @@ CREATE TABLE IF NOT EXISTS trades (
 """)
 conn.commit()
 
-# Load data
 df = pd.read_sql("SELECT * FROM trades", conn)
 
 # =========================
@@ -39,7 +37,7 @@ risk_pct = st.number_input("Risk %", value=25.0) / 100
 st.caption(f"⚖️ RR = 1 : {round(reward_pct/risk_pct,2) if risk_pct else 0}")
 
 # =========================
-# 🧠 STATE LOGIC
+# 🧠 STATE
 # =========================
 
 if len(df) == 0:
@@ -98,7 +96,7 @@ else:
 daily_pnl = capital - day_start
 
 # =========================
-# 📱 MOBILE METRICS
+# 📱 DASHBOARD
 # =========================
 
 st.markdown(f"### 💰 ₹{round(capital,2)}")
@@ -110,53 +108,29 @@ c2.metric("Daily P&L", f"₹{round(daily_pnl,0)}")
 c3.metric("Loss Streak", consec_loss)
 
 # =========================
-# 🧠 A+ CHECKLIST
-# =========================
-
-st.markdown("### 🧠 A+ Setup")
-
-col1, col2 = st.columns(2)
-trend = col1.checkbox("Trend")
-level = col2.checkbox("Level")
-confirmation = col1.checkbox("Confirmation")
-rr = col2.checkbox("RR ≥ 1:2")
-entry = st.checkbox("Clean Entry")
-
-score = sum([trend, level, confirmation, rr, entry])
-
-if score >= 4:
-    st.success(f"A+ Setup ✅ ({score}/5)")
-    allow_trade = True
-else:
-    st.warning(f"Not A+ ❌ ({score}/5)")
-    allow_trade = False
-
-# =========================
 # 🎯 TRADE INPUT
 # =========================
 
 outcome = st.radio("Outcome", ["W","L"], horizontal=True)
 
 if st.button("Add Trade"):
-    if not allow_trade:
-        st.warning("🚫 Trade blocked (Not A+)")
+
+    if outcome == "W":
+        capital += capital * trade_size * reward_pct
+        consec_loss = 0
     else:
-        if outcome == "W":
-            capital += capital * trade_size * reward_pct
-            consec_loss = 0
-        else:
-            capital -= capital * trade_size * risk_pct
-            consec_loss += 1
+        capital -= capital * trade_size * risk_pct
+        consec_loss += 1
 
-        c.execute("""
-        INSERT INTO trades VALUES (?,?,?,?,?,?)
-        """, (day, trade_no, capital, outcome, trade_size, consec_loss))
+    c.execute("""
+    INSERT INTO trades VALUES (?,?,?,?,?,?)
+    """, (day, trade_no, capital, outcome, trade_size, consec_loss))
 
-        conn.commit()
-        st.rerun()
+    conn.commit()
+    st.rerun()
 
 # =========================
-# 📊 PRO METRICS
+# 📊 STATS
 # =========================
 
 df_full = pd.read_sql("SELECT * FROM trades", conn)
