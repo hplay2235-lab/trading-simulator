@@ -1,29 +1,47 @@
 import streamlit as st
 import pandas as pd
+import sqlite3
 import os
 
 st.set_page_config(layout="centered")
 st.title("📊 Trading Dashboard")
 
-FILE = "data.csv"
+# =========================
+# 🗄️ DATABASE SETUP
+# =========================
 
-# --- Load once ---
-if "df" not in st.session_state:
-    if os.path.exists(FILE):
-        st.session_state.df = pd.read_csv(FILE)
-    else:
-        st.session_state.df = pd.DataFrame(columns=[
-            "Day","Trade","Capital","Outcome","TradeSize","ConsecLoss"
-        ])
+conn = sqlite3.connect("trades.db", check_same_thread=False)
+c = conn.cursor()
 
-df = st.session_state.df
+c.execute("""
+CREATE TABLE IF NOT EXISTS trades (
+    Day INTEGER,
+    Trade INTEGER,
+    Capital REAL,
+    Outcome TEXT,
+    TradeSize REAL,
+    ConsecLoss INTEGER
+)
+""")
+conn.commit()
 
-# --- Inputs ---
+# Load data
+df = pd.read_sql("SELECT * FROM trades", conn)
+
+# =========================
+# ⚙️ INPUTS
+# =========================
+
 start_capital = st.number_input("Starting Capital (₹)", value=25000)
 reward_pct = st.number_input("Reward %", value=50.0) / 100
 risk_pct = st.number_input("Risk %", value=25.0) / 100
 
-# --- State ---
+st.caption(f"⚖️ RR = 1 : {round(reward_pct/risk_pct,2) if risk_pct else 0}")
+
+# =========================
+# 🧠 STATE LOGIC
+# =========================
+
 if len(df) == 0:
     capital = start_capital
     day = 1
@@ -42,17 +60,18 @@ else:
         consec_loss = int(today_df.iloc[-1]["ConsecLoss"])
         trades_today = len(today_df)
 
-# --- Auto next day ---
+# Auto next day
 if trades_today >= 2:
     day += 1
     trades_today = 0
 
 trade_no = trades_today + 1
-
-# --- Previous outcome ---
 prev_outcome = today_df.iloc[-1]["Outcome"] if trades_today > 0 else None
 
-# --- Trade size logic ---
+# =========================
+# 📊 TRADE SIZE
+# =========================
+
 def get_trade_size(consec_loss, trade_no, prev_outcome):
     if trade_no == 1:
         if consec_loss >= 2:
@@ -65,9 +84,12 @@ def get_trade_size(consec_loss, trade_no, prev_outcome):
         return 0.25 if prev_outcome == "L" else 0.4
 
 trade_size = get_trade_size(consec_loss, trade_no, prev_outcome)
-invested_amount = capital * trade_size
+invested = capital * trade_size
 
-# --- Daily PnL ---
+# =========================
+# 📈 DAILY P&L
+# =========================
+
 if len(df) == 0 or trades_today == 0:
     day_start = capital
 else:
@@ -76,78 +98,48 @@ else:
 daily_pnl = capital - day_start
 
 # =========================
-# 📱 MOBILE METRICS (STACKED)
+# 📱 MOBILE METRICS
 # =========================
 
 st.markdown(f"### 💰 ₹{round(capital,2)}")
 st.caption(f"Day {day} • Trade {trade_no}/2")
 
 c1, c2, c3 = st.columns(3)
-c1.metric("Invested", f"₹{round(invested_amount,0)}")
+c1.metric("Invested", f"₹{round(invested,0)}")
 c2.metric("Daily P&L", f"₹{round(daily_pnl,0)}")
-c3.metric("Streak", consec_loss)
+c3.metric("Loss Streak", consec_loss)
 
 # =========================
-# 📊 PRO METRICS
+# 🧠 A+ CHECKLIST
 # =========================
 
-df_full = df[df["Trade"] > 0].copy()
+st.markdown("### 🧠 A+ Setup")
 
-if not df_full.empty:
+col1, col2 = st.columns(2)
+trend = col1.checkbox("Trend")
+level = col2.checkbox("Level")
+confirmation = col1.checkbox("Confirmation")
+rr = col2.checkbox("RR ≥ 1:2")
+entry = st.checkbox("Clean Entry")
 
-    # Win rate
-    total = len(df_full)
-    wins = len(df_full[df_full["Outcome"] == "W"])
-    win_rate = wins / total
+score = sum([trend, level, confirmation, rr, entry])
 
-    # Drawdown
-    equity = df_full["Capital"]
-    peak = equity.cummax()
-    drawdown = ((equity - peak) / peak) * 100
-    max_dd = drawdown.min()
-
-    # Expectancy
-    invested = df_full["Capital"] * df_full["TradeSize"]
-    pnl = []
-
-    for i, row in df_full.iterrows():
-        if row["Outcome"] == "W":
-            pnl.append(invested.iloc[i] * reward_pct)
-        else:
-            pnl.append(-invested.iloc[i] * risk_pct)
-
-    avg_win = pd.Series(pnl)[pd.Series(pnl) > 0].mean() if wins > 0 else 0
-    avg_loss = abs(pd.Series(pnl)[pd.Series(pnl) < 0].mean()) if wins < total else 0
-
-    expectancy = (win_rate * avg_win) - ((1 - win_rate) * avg_loss)
-
-    c4, c5, c6 = st.columns(3)
-    c4.metric("Win %", f"{round(win_rate*100,1)}")
-    c5.metric("Max DD", f"{round(max_dd,1)}%")
-    c6.metric("Expectancy", f"₹{round(expectancy,0)}")
-
-# =========================
-# ⚠️ WARNINGS
-# =========================
-
-if consec_loss >= 2:
-    st.warning("⚠️ Losing streak — reduce risk")
-
-if day_start != 0:
-    loss_pct = (daily_pnl / day_start) * 100
-    if loss_pct < -10:
-        st.error("🚫 Daily loss >10%")
+if score >= 4:
+    st.success(f"A+ Setup ✅ ({score}/5)")
+    allow_trade = True
+else:
+    st.warning(f"Not A+ ❌ ({score}/5)")
+    allow_trade = False
 
 # =========================
 # 🎯 TRADE INPUT
 # =========================
 
 outcome = st.radio("Outcome", ["W","L"], horizontal=True)
-setup_ok = st.checkbox("A+ Setup Only")
 
 if st.button("Add Trade"):
-    if not setup_ok:
-        st.warning("Blocked: No A+ setup")
+    if not allow_trade:
+        st.warning("🚫 Trade blocked (Not A+)")
     else:
         if outcome == "W":
             capital += capital * trade_size * reward_pct
@@ -156,38 +148,49 @@ if st.button("Add Trade"):
             capital -= capital * trade_size * risk_pct
             consec_loss += 1
 
-        new_row = {
-            "Day": day,
-            "Trade": trade_no,
-            "Capital": capital,
-            "Outcome": outcome,
-            "TradeSize": trade_size,
-            "ConsecLoss": consec_loss
-        }
+        c.execute("""
+        INSERT INTO trades VALUES (?,?,?,?,?,?)
+        """, (day, trade_no, capital, outcome, trade_size, consec_loss))
 
-        st.session_state.df = pd.concat(
-            [st.session_state.df, pd.DataFrame([new_row])],
-            ignore_index=True
-        )
-
-        st.session_state.df.to_csv(FILE, index=False)
+        conn.commit()
         st.rerun()
+
+# =========================
+# 📊 PRO METRICS
+# =========================
+
+df_full = pd.read_sql("SELECT * FROM trades", conn)
+df_full = df_full[df_full["Trade"] > 0]
+
+if not df_full.empty:
+
+    total = len(df_full)
+    wins = len(df_full[df_full["Outcome"] == "W"])
+    win_rate = wins / total
+
+    equity = df_full["Capital"]
+    peak = equity.cummax()
+    drawdown = ((equity - peak) / peak) * 100
+    max_dd = drawdown.min()
+
+    st.markdown("### 📊 Stats")
+    s1, s2 = st.columns(2)
+    s1.metric("Win %", f"{round(win_rate*100,1)}")
+    s2.metric("Max DD", f"{round(max_dd,1)}%")
 
 # =========================
 # 🔄 RESET
 # =========================
 
 if st.button("Reset"):
-    st.session_state.df = pd.DataFrame(columns=[
-        "Day","Trade","Capital","Outcome","TradeSize","ConsecLoss"
-    ])
-    if os.path.exists(FILE):
-        os.remove(FILE)
+    c.execute("DELETE FROM trades")
+    conn.commit()
     st.rerun()
 
 # =========================
-# 📋 HISTORY (COLLAPSIBLE)
+# 📋 HISTORY
 # =========================
 
 with st.expander("📋 Trade History"):
-    st.dataframe(st.session_state.df, use_container_width=True)
+    df_show = pd.read_sql("SELECT * FROM trades", conn)
+    st.dataframe(df_show, use_container_width=True)
