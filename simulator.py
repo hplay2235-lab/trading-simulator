@@ -131,22 +131,52 @@ if st.button("Reset"):
     
     st.success("Reset successful")
     st.rerun()
-# --- Day-wise Summary ---
+# --- Trade-wise Summary ---
 if len(st.session_state.df) > 0:
 
     df_full = st.session_state.df.copy()
 
-    # Remove dummy rows if any
-    df_full = df_full[df_full["Trade"] > 0]
+    # Keep only actual trades
+    df_full = df_full[df_full["Trade"] > 0].reset_index(drop=True)
 
     if not df_full.empty:
 
-        day_summary = df_full.groupby("Day").agg(
-            Start_Capital=("Capital", "first"),
-            End_Capital=("Capital", "last")
-        ).reset_index()
+        # Calculate invested amount & PnL
+        invested_list = []
+        pnl_list = []
+        prev_capital = None
 
-        day_summary["Daily_PnL"] = day_summary["End_Capital"] - day_summary["Start_Capital"]
+        for i, row in df_full.iterrows():
+            capital = row["Capital"]
+            trade_size = row["TradeSize"]
 
-        st.subheader("📅 Day-wise Summary")
-        st.dataframe(day_summary, use_container_width=True)
+            if prev_capital is None:
+                prev_capital = capital / (1 + trade_size * 0.5) if row["Outcome"] == "W" else capital / (1 - trade_size * 0.25)
+
+            invested = prev_capital * trade_size
+
+            if row["Outcome"] == "W":
+                pnl = invested * 0.5
+            else:
+                pnl = -invested * 0.25
+
+            invested_list.append(invested)
+            pnl_list.append(pnl)
+
+            prev_capital = capital
+
+        df_full["Invested ₹"] = invested_list
+        df_full["PnL ₹"] = pnl_list
+
+        # Format
+        df_display = df_full[[
+            "Day","Trade","Outcome","TradeSize","Invested ₹","PnL ₹","Capital"
+        ]].copy()
+
+        df_display["TradeSize"] = (df_display["TradeSize"] * 100).astype(int).astype(str) + "%"
+        df_display["Invested ₹"] = df_display["Invested ₹"].round(2)
+        df_display["PnL ₹"] = df_display["PnL ₹"].round(2)
+        df_display["Capital"] = df_display["Capital"].round(2)
+
+        st.subheader("📊 Trade-wise Summary")
+        st.dataframe(df_display, use_container_width=True)
