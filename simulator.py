@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import random
-st.line_chart(df["Capital"])
 
 st.title("📊 30-Day Trading Simulator")
 
@@ -11,6 +10,7 @@ reward_input = st.number_input("Reward %", value=10.0) / 100
 win_rate = st.slider("Win Probability", 0.1, 0.9, 0.5)
 
 if st.button("Run Simulation"):
+
     capital = capital_input
     peak = capital
     data = []
@@ -44,12 +44,13 @@ if st.button("Run Simulation"):
 
     df = pd.DataFrame(data)
 
+    # ✅ Table
     st.dataframe(df)
 
-    fig, ax = plt.subplots()
-    ax.plot(df["Day"], df["Capital"])
-    st.pyplot(fig)
+    # ✅ Chart (NOW in correct place)
+    st.line_chart(df.set_index("Day")["Capital"])
 
+    # ✅ Metrics
     total_return = (capital / capital_input - 1) * 100
     max_dd = df["Drawdown"].min() * 100
 
