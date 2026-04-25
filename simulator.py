@@ -133,3 +133,8 @@ st.dataframe(df, use_container_width=True)
 if len(df) > 0:
     st.subheader("📈 Equity Curve")
     st.line_chart(df["Capital"])
+# --- RESET SYSTEM ---
+if st.button("🔄 Reset to Day 1"):
+    if os.path.exists(FILE):
+        os.remove(FILE)
+    st.success("System reset to Day 1. Please refresh the app.")
