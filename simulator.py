@@ -3,7 +3,7 @@ import pandas as pd
 import os
 
 st.set_page_config(layout="centered")
-st.title("📊 Trading Tracker (Stable Version)")
+st.title("📊 Trading Tracker")
 
 FILE = "data.csv"
 
@@ -18,10 +18,10 @@ if "df" not in st.session_state:
 
 df = st.session_state.df
 
-# --- Inputs ---
+# --- Input ---
 start_capital = st.number_input("Starting Capital (₹)", value=25000)
 
-# --- Initialize state ---
+# --- Get state ---
 if len(df) == 0:
     capital = start_capital
     day = 1
@@ -38,9 +38,13 @@ else:
     else:
         capital = float(today_df.iloc[-1]["Capital"])
         consec_loss = int(today_df.iloc[-1]["ConsecLoss"])
-        trades_today = len(today_df[today_df["Trade"] > 0])
+        trades_today = len(today_df)
 
-# --- Trade number ---
+# --- Auto next day after 2 trades ---
+if trades_today >= 2:
+    day += 1
+    trades_today = 0
+
 trade_no = trades_today + 1
 
 # --- Previous outcome ---
@@ -63,24 +67,34 @@ def get_trade_size(consec_loss, trade_no, prev_outcome):
 trade_size = get_trade_size(consec_loss, trade_no, prev_outcome)
 invested_amount = capital * trade_size
 
-# --- UI Boxes ---
-col1, col2 = st.columns(2)
+# --- Display ---
+# --- Daily P&L Calculation ---
+if len(df) == 0 or trades_today == 0:
+    day_start_capital = capital
+else:
+    day_start_capital = today_df.iloc[0]["Capital"]
+
+daily_pnl = capital - day_start_capital
+
+# --- Display Boxes ---
+col1, col2, col3 = st.columns(3)
+
 col1.metric("💰 Total Capital", f"₹{round(capital,2)}")
 col2.metric("📊 Invested Amount", f"₹{round(invested_amount,2)}")
 
-st.markdown(f"📅 Day: {day} | Trades Today: {trades_today}/2")
+col3.metric(
+    "📈 Daily P&L",
+    f"₹{round(daily_pnl,2)}",
+    delta=f"{round((daily_pnl/day_start_capital)*100,2)}%"
+)
 
-# --- Trade limit ---
-allow_trade = trades_today < 2
-if not allow_trade:
-    st.warning("🚫 Max 2 trades reached today")
+st.markdown(f"📅 Day {day} | Trade {trade_no}/2")
 
 # --- Input ---
 outcome = st.selectbox("Outcome", ["W","L"])
-st.write(f"📊 Trade #{trade_no} Size: {int(trade_size*100)}%")
 
 # --- Add Trade ---
-if st.button("Add Trade") and allow_trade:
+if st.button("Add Trade"):
 
     if outcome == "W":
         capital += capital * trade_size * 0.5
@@ -106,45 +120,10 @@ if st.button("Add Trade") and allow_trade:
     st.session_state.df.to_csv(FILE, index=False)
     st.rerun()
 
-# --- Next Day ---
-if st.button("➡️ Start Next Day"):
-    if trades_today == 0:
-        st.warning("No trades today yet")
-    else:
-        new_day = day + 1
-
-        new_row = {
-            "Day": new_day,
-            "Trade": 0,
-            "Capital": capital,
-            "Outcome": "-",
-            "TradeSize": 0,
-            "ConsecLoss": consec_loss
-        }
-
-        st.session_state.df = pd.concat(
-            [st.session_state.df, pd.DataFrame([new_row])],
-            ignore_index=True
-        )
-
-        st.session_state.df.to_csv(FILE, index=False)
-        st.rerun()
-
 # --- Reset ---
-if st.button("🔄 Reset to Day 1"):
+if st.button("Reset"):
     st.session_state.df = pd.DataFrame(columns=[
         "Day","Trade","Capital","Outcome","TradeSize","ConsecLoss"
     ])
     if os.path.exists(FILE):
-        os.remove(FILE)
-    st.rerun()
-
-# --- Display ---
-st.subheader("📋 Trade History")
-st.dataframe(st.session_state.df, use_container_width=True)
-
-if len(st.session_state.df) > 0:
-    st.subheader("📈 Equity Curve")
-    chart_df = st.session_state.df[st.session_state.df["Trade"] > 0]
-    if not chart_df.empty:
-        st.line_chart(chart_df.set_index("Day")["Capital"])
+        os
