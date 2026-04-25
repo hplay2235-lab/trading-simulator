@@ -41,7 +41,39 @@ else:
     trades_today = len(df[df["Day"] == day])
 
 # --- UI Display ---
-st.markdown(f"### 💰 Current Capital: ₹{round(capital,2)}")
+# --- CAPITAL DISPLAY BOXES ---
+col1, col2 = st.columns(2)
+
+# Calculate trade size again (same logic)
+def get_trade_size(consec_loss, trade_no, prev_outcome=None):
+    if trade_no == 1:
+        if consec_loss >= 2:
+            return 0.2
+        elif consec_loss == 1:
+            return 0.3
+        else:
+            return 0.4
+    else:
+        if prev_outcome == "L":
+            return 0.25
+        else:
+            return 0.4
+
+# Determine current trade number
+trade_no = trades_today + 1
+
+# Previous outcome
+prev_outcome = None
+if trades_today > 0:
+    prev_outcome = df.iloc[-1]["Outcome"]
+
+trade_size = get_trade_size(consec_loss, trade_no, prev_outcome)
+
+invested_amount = capital * trade_size
+
+# Display boxes
+col1.metric("💰 Total Capital", f"₹{round(capital,2)}")
+col2.metric("📊 Invested Amount", f"₹{round(invested_amount,2)}")
 st.markdown(f"📅 Day: {day} | Trades Today: {trades_today}/2")
 
 # --- HARD RULE ENFORCEMENT ---
