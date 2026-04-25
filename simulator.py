@@ -6,9 +6,26 @@ st.set_page_config(layout="centered")
 st.title("📊 Trading Dashboard")
 
 # =========================
+# 🇮🇳 INR FORMAT FUNCTION
+# =========================
+def format_inr(x):
+    x = int(x)
+    s = str(abs(x))
+    if len(s) <= 3:
+        result = s
+    else:
+        result = s[-3:]
+        s = s[:-3]
+        while len(s) > 2:
+            result = s[-2:] + "," + result
+            s = s[:-2]
+        if s:
+            result = s + "," + result
+    return f"₹{'-' if x < 0 else ''}{result}"
+
+# =========================
 # 🗄️ DATABASE
 # =========================
-
 conn = sqlite3.connect("trades.db", check_same_thread=False)
 c = conn.cursor()
 
@@ -29,17 +46,15 @@ df = pd.read_sql("SELECT * FROM trades", conn)
 # =========================
 # ⚙️ INPUTS
 # =========================
-
 start_capital = st.number_input("Starting Capital (₹)", value=25000)
 reward_pct = st.number_input("Reward %", value=50.0) / 100
 risk_pct = st.number_input("Risk %", value=25.0) / 100
 
-st.caption(f"⚖️ RR = 1 : {round(reward_pct/risk_pct,2) if risk_pct else 0}")
+st.caption(f"⚖️ RR = 1 : {int(reward_pct/risk_pct) if risk_pct else 0}")
 
 # =========================
 # 🧠 STATE
 # =========================
-
 if len(df) == 0:
     capital = start_capital
     day = 1
@@ -69,7 +84,6 @@ prev_outcome = today_df.iloc[-1]["Outcome"] if trades_today > 0 else None
 # =========================
 # 📊 TRADE SIZE
 # =========================
-
 def get_trade_size(consec_loss, trade_no, prev_outcome):
     if trade_no == 1:
         if consec_loss >= 2:
@@ -87,7 +101,6 @@ invested = capital * trade_size
 # =========================
 # 📈 DAILY P&L
 # =========================
-
 if len(df) == 0 or trades_today == 0:
     day_start = capital
 else:
@@ -98,19 +111,17 @@ daily_pnl = capital - day_start
 # =========================
 # 📱 DASHBOARD
 # =========================
-
-st.markdown(f"### 💰 ₹{round(capital,2)}")
+st.markdown(f"### 💰 {format_inr(capital)}")
 st.caption(f"Day {day} • Trade {trade_no}/2")
 
 c1, c2, c3 = st.columns(3)
-c1.metric("Invested", f"₹{round(invested,0)}")
-c2.metric("Daily P&L", f"₹{round(daily_pnl,0)}")
+c1.metric("Invested", format_inr(invested))
+c2.metric("Daily P&L", format_inr(daily_pnl))
 c3.metric("Loss Streak", consec_loss)
 
 # =========================
 # 🎯 TRADE INPUT
 # =========================
-
 outcome = st.radio("Outcome", ["W","L"], horizontal=True)
 
 if st.button("Add Trade"):
@@ -132,7 +143,6 @@ if st.button("Add Trade"):
 # =========================
 # 📊 STATS
 # =========================
-
 df_full = pd.read_sql("SELECT * FROM trades", conn)
 df_full = df_full[df_full["Trade"] > 0]
 
@@ -149,13 +159,12 @@ if not df_full.empty:
 
     st.markdown("### 📊 Stats")
     s1, s2 = st.columns(2)
-    s1.metric("Win %", f"{round(win_rate*100,1)}")
-    s2.metric("Max DD", f"{round(max_dd,1)}%")
+    s1.metric("Win %", f"{int(win_rate*100)}%")
+    s2.metric("Max DD", f"{int(max_dd)}%")
 
 # =========================
 # 🔄 RESET
 # =========================
-
 if st.button("Reset"):
     c.execute("DELETE FROM trades")
     conn.commit()
@@ -164,7 +173,9 @@ if st.button("Reset"):
 # =========================
 # 📋 HISTORY
 # =========================
-
 with st.expander("📋 Trade History"):
     df_show = pd.read_sql("SELECT * FROM trades", conn)
+    if not df_show.empty:
+        df_show["Capital"] = df_show["Capital"].apply(format_inr)
+        df_show["TradeSize"] = (df_show["TradeSize"] * 100).astype(int).astype(str) + "%"
     st.dataframe(df_show, use_container_width=True)
