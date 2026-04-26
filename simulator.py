@@ -3,40 +3,40 @@ import pandas as pd
 import sqlite3
 
 st.set_page_config(layout="centered")
-st.title("📊 Volatility Compounding Trading System")
+st.title("📊 Trading Dashboard")
 
 # =========================
-# 🇮🇳 FORMAT
+# 🇮🇳 INDIAN FORMAT
 # =========================
 def format_inr(x):
     x = int(x)
     s = str(abs(x))
     if len(s) <= 3:
-        res = s
+        result = s
     else:
-        res = s[-3:]
+        result = s[-3:]
         s = s[:-3]
         while len(s) > 2:
-            res = s[-2:] + "," + res
+            result = s[-2:] + "," + result
             s = s[:-2]
         if s:
-            res = s + "," + res
-    return f"₹{'-' if x < 0 else ''}{res}"
+            result = s + "," + result
+    return f"₹{'-' if x < 0 else ''}{result}"
 
 # =========================
-# 🗄️ DB
+# 🗄️ SQLITE
 # =========================
 conn = sqlite3.connect("trades.db", check_same_thread=False)
 c = conn.cursor()
 
 c.execute("""
 CREATE TABLE IF NOT EXISTS trades (
-    day INTEGER,
-    trade INTEGER,
-    capital REAL,
-    outcome TEXT,
-    trade_size REAL,
-    consec_loss INTEGER
+    Day INTEGER,
+    Trade INTEGER,
+    Capital REAL,
+    Outcome TEXT,
+    TradeSize REAL,
+    ConsecLoss INTEGER
 )
 """)
 conn.commit()
@@ -46,10 +46,10 @@ df = pd.read_sql("SELECT * FROM trades", conn)
 # =========================
 # ⚙️ INPUTS
 # =========================
-start_capital = st.number_input("Starting Capital", value=25000)
+start_capital = st.number_input("Starting Capital (₹)", value=25000)
 reward_pct = st.number_input("Reward %", value=50.0) / 100
 risk_pct = st.number_input("Risk %", value=25.0) / 100
-manual_pct = st.number_input("Manual Invest % (0 = auto)", value=0.0) / 100
+invest_pct_input = st.number_input("Invest % (0 = Auto)", value=0.0) / 100
 
 # =========================
 # 🧠 STATE
@@ -60,75 +60,91 @@ if len(df) == 0:
     consec_loss = 0
     trades_today = 0
 else:
-    day = int(df["day"].max())
-    today = df[df["day"] == day]
+    day = int(df["Day"].max())
+    today_df = df[df["Day"] == day]
 
-    if len(today) == 0:
+    if len(today_df) == 0:
         capital = start_capital
         consec_loss = 0
         trades_today = 0
     else:
-        capital = float(today.iloc[-1]["capital"])
-        consec_loss = int(today.iloc[-1]["consec_loss"])
-        trades_today = len(today)
+        capital = float(today_df.iloc[-1]["Capital"])
+        consec_loss = int(today_df.iloc[-1]["ConsecLoss"])
+        trades_today = len(today_df)
 
-# auto next day after 2 trades
+# Auto next day after 2 trades
 if trades_today >= 2:
     day += 1
     trades_today = 0
 
 trade_no = trades_today + 1
-prev_outcome = df.iloc[-1]["outcome"] if len(df) > 0 else None
 
-# =========================
-# 📊 TRADE SIZE ENGINE
-# =========================
-def base_size(consec_loss, prev_outcome):
-    if consec_loss >= 2:
-        return 0.20
-    elif consec_loss == 1:
-        return 0.30
-    else:
-        return 0.40
-
-if manual_pct > 0:
-    trade_size = manual_pct
+if len(df) > 0:
+    last_row = df.iloc[-1]
+    prev_outcome = last_row["Outcome"]
+    consec_loss = int(last_row["ConsecLoss"])
 else:
-    trade_size = base_size(consec_loss, prev_outcome)
+    prev_outcome = None
+    consec_loss = 0
+# =========================
+# 📊 TRADE SIZE LOGIC
+# =========================
+def get_trade_size(consec_loss, trade_no, prev_outcome):
+    if trade_no == 1:
+        if consec_loss >= 2:
+            return 0.2
+        elif consec_loss == 1:
+            return 0.3
+        else:
+            return 0.4
+    else:
+        return 0.25 if prev_outcome == "L" else 0.4
 
-# loss compression
-trade_size = trade_size * (0.7 ** consec_loss)
+if invest_pct_input > 0:
+    base_trade_size = invest_pct_input
+else:
+    base_trade_size = get_trade_size(consec_loss, trade_no, prev_outcome)
 
-# safety limits
-trade_size = max(0.15, min(trade_size, 1.0))
+trade_size = base_trade_size * (0.7 ** consec_loss) if consec_loss > 0 else base_trade_size
+
+# 🔒 MIN MAX LIMIT
+trade_size = max(min(trade_size, 1.0), 0.15)
 
 invested = capital * trade_size
 
 # =========================
-# 📊 DISPLAY
+# 📈 DAILY P&L
 # =========================
-st.markdown(f"### 💰 Capital: {format_inr(capital)}")
+if len(df) == 0 or trades_today == 0:
+    day_start = capital
+else:
+    day_start = today_df.iloc[0]["Capital"]
+
+daily_pnl = capital - day_start
+
+# =========================
+# 📱 DASHBOARD
+# =========================
+st.markdown(f"### 💰 {format_inr(capital)}")
 st.caption(f"Day {day} • Trade {trade_no}/2")
 
 c1, c2, c3 = st.columns(3)
 c1.metric("Invested", format_inr(invested))
-c2.metric("Loss Streak", consec_loss)
-c3.metric("Trade %", f"{int(trade_size*100)}%")
+c2.metric("Daily P&L", format_inr(daily_pnl))
+c3.metric("Loss Streak", consec_loss)
 
 # =========================
-# 🎯 TRADE EXECUTION
+# 🎯 TRADE INPUT
 # =========================
 outcome = st.radio("Outcome", ["W", "L"], horizontal=True)
 
-if st.button("Execute Trade"):
+if st.button("Add Trade"):
 
     if outcome == "W":
-        profit = invested * reward_pct
-        capital += profit
+        capital += capital * trade_size * reward_pct
         consec_loss = 0
     else:
-        loss = invested * risk_pct
-        capital -= loss
+        capital -= capital * trade_size * risk_pct
         consec_loss += 1
 
     c.execute("""
@@ -141,72 +157,96 @@ if st.button("Execute Trade"):
 # =========================
 # 📌 SUGGESTIONS ENGINE
 # =========================
+def get_suggestion(prev_outcome, consec_loss, capital):
+
+    tips = []
+
+    if prev_outcome == "W":
+        tips.append("🟢 Winning streak active")
+        tips.append("📊 Maintain 30–40% risk or slightly reduce")
+        tips.append("⚖️ Avoid over-aggression")
+
+    elif prev_outcome == "L":
+        if consec_loss == 1:
+            tips.append("⚠️ First loss detected")
+            tips.append("📉 Suggested size: 25–30%")
+        elif consec_loss == 2:
+            tips.append("⚠️ 2 consecutive losses")
+            tips.append("📉 Switch to defensive mode (15–20%)")
+        else:
+            tips.append("🚨 High loss streak")
+            tips.append("📉 Minimum 15% only")
+
+    else:
+        tips.append("🟡 Start of cycle")
+        tips.append("📊 Use normal sizing (30–40%)")
+
+    return tips
+
 st.markdown("## 📌 Suggestions")
 
-def suggest(outcome, loss_streak):
-    s = []
+suggestions = get_suggestion(prev_outcome, consec_loss, capital)
 
-    if outcome == "W":
-        s.append("🟢 Strong position state")
-        s.append("📊 Maintain 30–40% exposure max")
-        s.append("⚖️ Avoid increasing risk aggressively")
-
-    elif outcome == "L":
-        if loss_streak == 1:
-            s.append("⚠️ First loss detected")
-            s.append("📉 Reduce exposure to ~25–30%")
-        elif loss_streak == 2:
-            s.append("⚠️ 2 consecutive losses")
-            s.append("📉 Defensive mode: 15–20% only")
-        else:
-            s.append("🚨 High loss streak")
-            s.append("🧠 Stay at minimum 15% exposure")
-
-    else:
-        s.append("🟡 Start of cycle")
-        s.append("📊 Normal exposure allowed")
-
-    return s
-
-for i in suggest(prev_outcome, consec_loss):
-    st.write(i)
+for s in suggestions:
+    st.write(s)
 
 # =========================
-# 📊 HISTORY
+# 📊 STATS
 # =========================
-with st.expander("📋 Trade History"):
+df_full = pd.read_sql("SELECT * FROM trades", conn)
+df_full = df_full[df_full["Trade"] > 0]
 
-    hist = pd.read_sql("SELECT * FROM trades", conn)
+if not df_full.empty:
 
-    if not hist.empty:
+    wins = len(df_full[df_full["Outcome"] == "W"])
+    win_rate = wins / len(df_full)
 
-        pnl = []
-        for i in range(len(hist)):
-            if i == 0:
-                pnl.append(hist.iloc[i]["capital"] - start_capital)
-            else:
-                pnl.append(hist.iloc[i]["capital"] - hist.iloc[i-1]["capital"])
+    peak = df_full["Capital"].cummax()
+    drawdown = ((df_full["Capital"] - peak) / peak) * 100
 
-        hist["P&L"] = pnl
-        hist["capital"] = hist["capital"].apply(format_inr)
-        hist["trade_size"] = (hist["trade_size"] * 100).astype(int).astype(str) + "%"
-
-        def color(v):
-            if v > 0:
-                return f"🟢 {format_inr(v)}"
-            return f"🔴 {format_inr(v)}"
-
-        hist["P&L"] = hist["P&L"].apply(color)
-
-        st.dataframe(hist, use_container_width=True)
-
-    else:
-        st.info("No trades yet")
+    st.markdown("### 📊 Stats")
+    c1, c2 = st.columns(2)
+    c1.metric("Win %", f"{int(win_rate*100)}%")
+    c2.metric("Max DD", f"{int(drawdown.min())}%")
 
 # =========================
 # 🔄 RESET
 # =========================
-if st.button("Reset System"):
+if st.button("Reset"):
     c.execute("DELETE FROM trades")
     conn.commit()
     st.rerun()
+
+# =========================
+# 📋 HISTORY
+# =========================
+with st.expander("📋 Trade History"):
+    df_show = pd.read_sql("SELECT * FROM trades", conn)
+
+    if not df_show.empty:
+
+        pnl = []
+        for i in range(len(df_show)):
+            if i == 0:
+                pnl.append(df_show.iloc[i]["Capital"] - start_capital)
+            else:
+                pnl.append(df_show.iloc[i]["Capital"] - df_show.iloc[i-1]["Capital"])
+
+        df_show["P&L"] = pnl
+
+        df_show["Capital"] = df_show["Capital"].apply(format_inr)
+        df_show["TradeSize"] = (df_show["TradeSize"] * 100).astype(int).astype(str) + "%"
+
+        def pnl_color(val):
+            if val > 0:
+                return f"🟢 {format_inr(val)}"
+            elif val < 0:
+                return f"🔴 {format_inr(val)}"
+            return format_inr(val)
+
+        df_show["P&L"] = df_show["P&L"].apply(pnl_color)
+
+        st.dataframe(df_show, use_container_width=True)
+
+    else:
+        st.info("No trades yet")
