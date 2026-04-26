@@ -196,6 +196,9 @@ with st.expander("📋 Trade History"):
 
     if not df_show.empty:
 
+        # =========================
+        # P&L CALCULATION
+        # =========================
         pnl_list = []
         for i in range(len(df_show)):
             if i == 0:
@@ -206,23 +209,26 @@ with st.expander("📋 Trade History"):
 
         df_show["P&L"] = pnl_list
 
+        # =========================
+        # FORMAT DISPLAY
+        # =========================
         df_show["Capital"] = df_show["Capital"].apply(format_inr)
         df_show["TradeSize"] = (df_show["TradeSize"] * 100).astype(int).astype(str) + "%"
-        df_show["P&L_raw"] = pnl_list
 
-        df_show["P&L"] = df_show["P&L"].apply(format_inr)
-
-        def color_pnl(row):
-            val = row["P&L_raw"]
+        # =========================
+        # COLOR LOGIC (SAFE METHOD)
+        # =========================
+        def color_pnl(val):
             if val > 0:
-                return ["", "", "", "", "color: green; font-weight: bold;", ""]
+                return f"🟢 {format_inr(val)}"
             elif val < 0:
-                return ["", "", "", "", "color: red; font-weight: bold;", ""]
-            return [""] * len(row)
+                return f"🔴 {format_inr(val)}"
+            else:
+                return f"{format_inr(val)}"
 
-        styled = df_show.style.apply(color_pnl, axis=1)
+        df_show["P&L"] = df_show["P&L"].apply(color_pnl)
 
-        st.dataframe(styled, use_container_width=True)
+        st.dataframe(df_show, use_container_width=True)
 
     else:
         st.info("No trades yet")
