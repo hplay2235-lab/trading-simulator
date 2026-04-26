@@ -175,7 +175,50 @@ if st.button("Reset"):
 # =========================
 with st.expander("📋 Trade History"):
     df_show = pd.read_sql("SELECT * FROM trades", conn)
+
     if not df_show.empty:
+
+        # --- Calculate P&L ---
+        pnl_list = []
+        for i in range(len(df_show)):
+            if i == 0:
+                pnl = df_show.iloc[i]["Capital"] - start_capital
+            else:
+                pnl = df_show.iloc[i]["Capital"] - df_show.iloc[i-1]["Capital"]
+            pnl_list.append(pnl)
+
+        df_show["P&L"] = pnl_list
+
+        # --- Format for display ---
         df_show["Capital"] = df_show["Capital"].apply(format_inr)
         df_show["TradeSize"] = (df_show["TradeSize"] * 100).astype(int).astype(str) + "%"
-    st.dataframe(df_show, use_container_width=True)
+
+        # Keep numeric P&L for coloring
+        df_numeric = df_show.copy()
+
+        # Convert P&L to formatted string
+        df_show["P&L"] = df_show["P&L"].apply(format_inr)
+
+        # --- Styling function ---
+        def color_pnl(val):
+            try:
+                v = float(val)
+                if v > 0:
+                    return "color: green; font-weight: bold;"
+                elif v < 0:
+                    return "color: red; font-weight: bold;"
+                else:
+                    return ""
+            except:
+                return ""
+
+        # Apply styling using numeric P&L
+        styled_df = df_show.style.apply(
+            lambda x: [color_pnl(df_numeric.loc[x.name, "P&L"]) if col == "P&L" else "" for col in df_show.columns],
+            axis=1
+        )
+
+        st.dataframe(styled_df, use_container_width=True)
+
+    else:
+        st.info("No trades yet")
