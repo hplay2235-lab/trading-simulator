@@ -62,7 +62,7 @@ if len(df) == 0:
     day = 1
     consec_loss = 0
     trades_today = 0
-    last_trade_size = None
+
 else:
     day = int(df["Day"].max())
     today_df = df[df["Day"] == day]
@@ -71,12 +71,12 @@ else:
         capital = start_capital
         consec_loss = 0
         trades_today = 0
-        last_trade_size = None
+        
     else:
         capital = float(today_df.iloc[-1]["Capital"])
         consec_loss = int(today_df.iloc[-1]["ConsecLoss"])
         trades_today = len(today_df)
-        last_trade_size = today_df.iloc[-1]["TradeSize"]
+        
 
 # Auto next day after 2 trades
 if trades_today >= 2:
@@ -87,7 +87,7 @@ trade_no = trades_today + 1
 prev_outcome = today_df.iloc[-1]["Outcome"] if trades_today > 0 else None
 
 # =========================
-# 📊 TRADE SIZE LOGIC
+# 📊 SAFE DYNAMIC TRADE SIZE (FIXED)
 # =========================
 
 def get_trade_size(consec_loss, trade_no, prev_outcome):
@@ -101,19 +101,36 @@ def get_trade_size(consec_loss, trade_no, prev_outcome):
     else:
         return 0.25 if prev_outcome == "L" else 0.4
 
-# Base size
+
+# Get last TWO trades from DB (IMPORTANT FIX)
+if len(df) >= 2:
+    last_row = df.iloc[-1]
+    prev_row = df.iloc[-2]
+
+    last_trade_size = last_row["TradeSize"]
+    prev_outcome_db = last_row["Outcome"]
+else:
+    last_trade_size = None
+    prev_outcome_db = None
+
+# Base size (manual override OR system logic)
 if invest_pct_input > 0:
     base_trade_size = invest_pct_input
 else:
     base_trade_size = get_trade_size(consec_loss, trade_no, prev_outcome)
 
-# Adaptive reduction after loss
-if prev_outcome == "L" and last_trade_size is not None:
+# =========================
+# 🔻 LOSS CARRY FORWARD FIX
+# =========================
+
+if prev_outcome_db == "L" and last_trade_size is not None:
     trade_size = last_trade_size * 0.65
 else:
     trade_size = base_trade_size
 
+# Safety cap
 trade_size = min(trade_size, 1.0)
+
 invested = capital * trade_size
 
 # =========================
