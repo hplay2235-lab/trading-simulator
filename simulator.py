@@ -24,7 +24,7 @@ def format_inr(x):
     return f"₹{'-' if x < 0 else ''}{result}"
 
 # =========================
-# 🗄️ SQLITE DB
+# 🗄️ SQLITE SETUP
 # =========================
 conn = sqlite3.connect("trades.db", check_same_thread=False)
 c = conn.cursor()
@@ -55,14 +55,13 @@ invest_pct_input = st.number_input("Invest % (0 = Auto)", value=0.0) / 100
 st.caption(f"⚖️ RR = 1 : {int(reward_pct/risk_pct) if risk_pct else 0}")
 
 # =========================
-# 🧠 STATE
+# 🧠 STATE MANAGEMENT
 # =========================
 if len(df) == 0:
     capital = start_capital
     day = 1
     consec_loss = 0
     trades_today = 0
-
 else:
     day = int(df["Day"].max())
     today_df = df[df["Day"] == day]
@@ -71,12 +70,10 @@ else:
         capital = start_capital
         consec_loss = 0
         trades_today = 0
-        
     else:
         capital = float(today_df.iloc[-1]["Capital"])
         consec_loss = int(today_df.iloc[-1]["ConsecLoss"])
         trades_today = len(today_df)
-        
 
 # Auto next day after 2 trades
 if trades_today >= 2:
@@ -87,9 +84,8 @@ trade_no = trades_today + 1
 prev_outcome = today_df.iloc[-1]["Outcome"] if trades_today > 0 else None
 
 # =========================
-# 📊 FIXED DYNAMIC SIZE LOGIC (NO DRIFT)
+# 📊 TRADE SIZE LOGIC (FINAL FIXED)
 # =========================
-
 def get_trade_size(consec_loss, trade_no, prev_outcome):
     if trade_no == 1:
         if consec_loss >= 2:
@@ -101,44 +97,19 @@ def get_trade_size(consec_loss, trade_no, prev_outcome):
     else:
         return 0.25 if prev_outcome == "L" else 0.4
 
-
-# Base size (manual override OR system)
+# Base sizing
 if invest_pct_input > 0:
     base_trade_size = invest_pct_input
 else:
     base_trade_size = get_trade_size(consec_loss, trade_no, prev_outcome)
 
-# =========================
-# 🔥 CORE FIX: ONLY TRACK CONSECUTIVE LOSSES
-# =========================
-
-# IMPORTANT:
-# Only reduce after LOSS streak, NOT just previous loss
-
+# Loss-based scaling (SAFE)
 if consec_loss > 0:
-    # scale down gradually based on streak
     trade_size = base_trade_size * (0.7 ** consec_loss)
 else:
-    # WIN or reset → normal sizing
     trade_size = base_trade_size
 
-# Safety cap
 trade_size = min(trade_size, 1.0)
-
-invested = capital * trade_size
-
-# =========================
-# 🔻 LOSS CARRY FORWARD FIX
-# =========================
-
-if prev_outcome_db == "L" and last_trade_size is not None:
-    trade_size = last_trade_size * 0.65
-else:
-    trade_size = base_trade_size
-
-# Safety cap
-trade_size = min(trade_size, 1.0)
-
 invested = capital * trade_size
 
 # =========================
@@ -165,7 +136,7 @@ c3.metric("Loss Streak", consec_loss)
 # =========================
 # 🎯 TRADE INPUT
 # =========================
-outcome = st.radio("Outcome", ["W","L"], horizontal=True)
+outcome = st.radio("Outcome", ["W", "L"], horizontal=True)
 
 if st.button("Add Trade"):
 
@@ -214,44 +185,33 @@ if st.button("Reset"):
     st.rerun()
 
 # =========================
-# 📋 HISTORY WITH P&L + COLORS
+# 📋 HISTORY (NO STYLER CRASH)
 # =========================
 with st.expander("📋 Trade History"):
     df_show = pd.read_sql("SELECT * FROM trades", conn)
 
     if not df_show.empty:
 
-        # =========================
-        # P&L CALCULATION
-        # =========================
-        pnl_list = []
+        pnl = []
         for i in range(len(df_show)):
             if i == 0:
-                pnl = df_show.iloc[i]["Capital"] - start_capital
+                pnl.append(df_show.iloc[i]["Capital"] - start_capital)
             else:
-                pnl = df_show.iloc[i]["Capital"] - df_show.iloc[i-1]["Capital"]
-            pnl_list.append(pnl)
+                pnl.append(df_show.iloc[i]["Capital"] - df_show.iloc[i-1]["Capital"])
 
-        df_show["P&L"] = pnl_list
+        df_show["P&L"] = pnl
 
-        # =========================
-        # FORMAT DISPLAY
-        # =========================
         df_show["Capital"] = df_show["Capital"].apply(format_inr)
         df_show["TradeSize"] = (df_show["TradeSize"] * 100).astype(int).astype(str) + "%"
 
-        # =========================
-        # COLOR LOGIC (SAFE METHOD)
-        # =========================
-        def color_pnl(val):
+        def pnl_color(val):
             if val > 0:
                 return f"🟢 {format_inr(val)}"
             elif val < 0:
                 return f"🔴 {format_inr(val)}"
-            else:
-                return f"{format_inr(val)}"
+            return format_inr(val)
 
-        df_show["P&L"] = df_show["P&L"].apply(color_pnl)
+        df_show["P&L"] = df_show["P&L"].apply(pnl_color)
 
         st.dataframe(df_show, use_container_width=True)
 
