@@ -109,7 +109,7 @@ if consec_loss > 0:
 else:
     trade_size = base_trade_size
 
-trade_size = min(trade_size, 1.0)
+trade_size = min(max(trade_size, 0.15), 1.0)
 invested = capital * trade_size
 
 # =========================
