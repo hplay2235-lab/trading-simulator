@@ -6,7 +6,7 @@ st.set_page_config(layout="centered")
 st.title("📊 Trading Dashboard")
 
 # =========================
-# 🇮🇳 INDIAN NUMBER FORMAT
+# 🇮🇳 INDIAN FORMAT
 # =========================
 def format_inr(x):
     x = int(x)
@@ -24,7 +24,7 @@ def format_inr(x):
     return f"₹{'-' if x < 0 else ''}{result}"
 
 # =========================
-# 🗄️ SQLITE SETUP
+# 🗄️ SQLITE
 # =========================
 conn = sqlite3.connect("trades.db", check_same_thread=False)
 c = conn.cursor()
@@ -49,13 +49,10 @@ df = pd.read_sql("SELECT * FROM trades", conn)
 start_capital = st.number_input("Starting Capital (₹)", value=25000)
 reward_pct = st.number_input("Reward %", value=50.0) / 100
 risk_pct = st.number_input("Risk %", value=25.0) / 100
-
 invest_pct_input = st.number_input("Invest % (0 = Auto)", value=0.0) / 100
 
-st.caption(f"⚖️ RR = 1 : {int(reward_pct/risk_pct) if risk_pct else 0}")
-
 # =========================
-# 🧠 STATE MANAGEMENT
+# 🧠 STATE
 # =========================
 if len(df) == 0:
     capital = start_capital
@@ -84,7 +81,7 @@ trade_no = trades_today + 1
 prev_outcome = today_df.iloc[-1]["Outcome"] if trades_today > 0 else None
 
 # =========================
-# 📊 TRADE SIZE LOGIC (FINAL FIXED)
+# 📊 TRADE SIZE LOGIC
 # =========================
 def get_trade_size(consec_loss, trade_no, prev_outcome):
     if trade_no == 1:
@@ -97,19 +94,16 @@ def get_trade_size(consec_loss, trade_no, prev_outcome):
     else:
         return 0.25 if prev_outcome == "L" else 0.4
 
-# Base sizing
 if invest_pct_input > 0:
     base_trade_size = invest_pct_input
 else:
     base_trade_size = get_trade_size(consec_loss, trade_no, prev_outcome)
 
-# Loss-based scaling (SAFE)
-if consec_loss > 0:
-    trade_size = base_trade_size * (0.7 ** consec_loss)
-else:
-    trade_size = base_trade_size
+trade_size = base_trade_size * (0.7 ** consec_loss) if consec_loss > 0 else base_trade_size
 
-trade_size = min(max(trade_size, 0.15), 1.0)
+# 🔒 MIN MAX LIMIT
+trade_size = max(min(trade_size, 1.0), 0.15)
+
 invested = capital * trade_size
 
 # =========================
@@ -155,6 +149,42 @@ if st.button("Add Trade"):
     st.rerun()
 
 # =========================
+# 📌 SUGGESTIONS ENGINE
+# =========================
+def get_suggestion(prev_outcome, consec_loss, capital):
+
+    tips = []
+
+    if prev_outcome == "W":
+        tips.append("🟢 Winning streak active")
+        tips.append("📊 Maintain 30–40% risk or slightly reduce")
+        tips.append("⚖️ Avoid over-aggression")
+
+    elif prev_outcome == "L":
+        if consec_loss == 1:
+            tips.append("⚠️ First loss detected")
+            tips.append("📉 Suggested size: 25–30%")
+        elif consec_loss == 2:
+            tips.append("⚠️ 2 consecutive losses")
+            tips.append("📉 Switch to defensive mode (15–20%)")
+        else:
+            tips.append("🚨 High loss streak")
+            tips.append("📉 Minimum 15% only")
+
+    else:
+        tips.append("🟡 Start of cycle")
+        tips.append("📊 Use normal sizing (30–40%)")
+
+    return tips
+
+st.markdown("## 📌 Suggestions")
+
+suggestions = get_suggestion(prev_outcome, consec_loss, capital)
+
+for s in suggestions:
+    st.write(s)
+
+# =========================
 # 📊 STATS
 # =========================
 df_full = pd.read_sql("SELECT * FROM trades", conn)
@@ -162,19 +192,16 @@ df_full = df_full[df_full["Trade"] > 0]
 
 if not df_full.empty:
 
-    total = len(df_full)
     wins = len(df_full[df_full["Outcome"] == "W"])
-    win_rate = wins / total
+    win_rate = wins / len(df_full)
 
-    equity = df_full["Capital"]
-    peak = equity.cummax()
-    drawdown = ((equity - peak) / peak) * 100
-    max_dd = drawdown.min()
+    peak = df_full["Capital"].cummax()
+    drawdown = ((df_full["Capital"] - peak) / peak) * 100
 
     st.markdown("### 📊 Stats")
-    s1, s2 = st.columns(2)
-    s1.metric("Win %", f"{int(win_rate*100)}%")
-    s2.metric("Max DD", f"{int(max_dd)}%")
+    c1, c2 = st.columns(2)
+    c1.metric("Win %", f"{int(win_rate*100)}%")
+    c2.metric("Max DD", f"{int(drawdown.min())}%")
 
 # =========================
 # 🔄 RESET
@@ -185,7 +212,7 @@ if st.button("Reset"):
     st.rerun()
 
 # =========================
-# 📋 HISTORY (NO STYLER CRASH)
+# 📋 HISTORY
 # =========================
 with st.expander("📋 Trade History"):
     df_show = pd.read_sql("SELECT * FROM trades", conn)
