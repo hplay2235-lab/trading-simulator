@@ -6,7 +6,7 @@ st.set_page_config(layout="centered")
 st.title("📊 Trading Dashboard")
 
 # =========================
-# 🇮🇳 INR FORMAT FUNCTION
+# 🇮🇳 INDIAN NUMBER FORMAT
 # =========================
 def format_inr(x):
     x = int(x)
@@ -24,7 +24,7 @@ def format_inr(x):
     return f"₹{'-' if x < 0 else ''}{result}"
 
 # =========================
-# 🗄️ DATABASE
+# 🗄️ SQLITE DB
 # =========================
 conn = sqlite3.connect("trades.db", check_same_thread=False)
 c = conn.cursor()
@@ -50,6 +50,8 @@ start_capital = st.number_input("Starting Capital (₹)", value=25000)
 reward_pct = st.number_input("Reward %", value=50.0) / 100
 risk_pct = st.number_input("Risk %", value=25.0) / 100
 
+invest_pct_input = st.number_input("Invest % (0 = Auto)", value=0.0) / 100
+
 st.caption(f"⚖️ RR = 1 : {int(reward_pct/risk_pct) if risk_pct else 0}")
 
 # =========================
@@ -60,6 +62,7 @@ if len(df) == 0:
     day = 1
     consec_loss = 0
     trades_today = 0
+    last_trade_size = None
 else:
     day = int(df["Day"].max())
     today_df = df[df["Day"] == day]
@@ -68,12 +71,14 @@ else:
         capital = start_capital
         consec_loss = 0
         trades_today = 0
+        last_trade_size = None
     else:
         capital = float(today_df.iloc[-1]["Capital"])
         consec_loss = int(today_df.iloc[-1]["ConsecLoss"])
         trades_today = len(today_df)
+        last_trade_size = today_df.iloc[-1]["TradeSize"]
 
-# Auto next day
+# Auto next day after 2 trades
 if trades_today >= 2:
     day += 1
     trades_today = 0
@@ -82,8 +87,9 @@ trade_no = trades_today + 1
 prev_outcome = today_df.iloc[-1]["Outcome"] if trades_today > 0 else None
 
 # =========================
-# 📊 TRADE SIZE
+# 📊 TRADE SIZE LOGIC
 # =========================
+
 def get_trade_size(consec_loss, trade_no, prev_outcome):
     if trade_no == 1:
         if consec_loss >= 2:
@@ -95,7 +101,19 @@ def get_trade_size(consec_loss, trade_no, prev_outcome):
     else:
         return 0.25 if prev_outcome == "L" else 0.4
 
-trade_size = get_trade_size(consec_loss, trade_no, prev_outcome)
+# Base size
+if invest_pct_input > 0:
+    base_trade_size = invest_pct_input
+else:
+    base_trade_size = get_trade_size(consec_loss, trade_no, prev_outcome)
+
+# Adaptive reduction after loss
+if prev_outcome == "L" and last_trade_size is not None:
+    trade_size = last_trade_size * 0.65
+else:
+    trade_size = base_trade_size
+
+trade_size = min(trade_size, 1.0)
 invested = capital * trade_size
 
 # =========================
@@ -171,14 +189,13 @@ if st.button("Reset"):
     st.rerun()
 
 # =========================
-# 📋 HISTORY
+# 📋 HISTORY WITH P&L + COLORS
 # =========================
 with st.expander("📋 Trade History"):
     df_show = pd.read_sql("SELECT * FROM trades", conn)
 
     if not df_show.empty:
 
-        # --- Calculate P&L ---
         pnl_list = []
         for i in range(len(df_show)):
             if i == 0:
@@ -189,36 +206,23 @@ with st.expander("📋 Trade History"):
 
         df_show["P&L"] = pnl_list
 
-        # --- Format for display ---
         df_show["Capital"] = df_show["Capital"].apply(format_inr)
         df_show["TradeSize"] = (df_show["TradeSize"] * 100).astype(int).astype(str) + "%"
+        df_show["P&L_raw"] = pnl_list
 
-        # Keep numeric P&L for coloring
-        df_numeric = df_show.copy()
-
-        # Convert P&L to formatted string
         df_show["P&L"] = df_show["P&L"].apply(format_inr)
 
-        # --- Styling function ---
-        def color_pnl(val):
-            try:
-                v = float(val)
-                if v > 0:
-                    return "color: green; font-weight: bold;"
-                elif v < 0:
-                    return "color: red; font-weight: bold;"
-                else:
-                    return ""
-            except:
-                return ""
+        def color_pnl(row):
+            val = row["P&L_raw"]
+            if val > 0:
+                return ["", "", "", "", "color: green; font-weight: bold;", ""]
+            elif val < 0:
+                return ["", "", "", "", "color: red; font-weight: bold;", ""]
+            return [""] * len(row)
 
-        # Apply styling using numeric P&L
-        styled_df = df_show.style.apply(
-            lambda x: [color_pnl(df_numeric.loc[x.name, "P&L"]) if col == "P&L" else "" for col in df_show.columns],
-            axis=1
-        )
+        styled = df_show.style.apply(color_pnl, axis=1)
 
-        st.dataframe(styled_df, use_container_width=True)
+        st.dataframe(styled, use_container_width=True)
 
     else:
         st.info("No trades yet")
