@@ -78,8 +78,14 @@ if trades_today >= 2:
     trades_today = 0
 
 trade_no = trades_today + 1
-prev_outcome = today_df.iloc[-1]["Outcome"] if trades_today > 0 else None
 
+if len(df) > 0:
+    last_row = df.iloc[-1]
+    prev_outcome = last_row["Outcome"]
+    consec_loss = int(last_row["ConsecLoss"])
+else:
+    prev_outcome = None
+    consec_loss = 0
 # =========================
 # 📊 TRADE SIZE LOGIC
 # =========================
