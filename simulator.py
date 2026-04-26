@@ -87,7 +87,7 @@ trade_no = trades_today + 1
 prev_outcome = today_df.iloc[-1]["Outcome"] if trades_today > 0 else None
 
 # =========================
-# 📊 SAFE DYNAMIC TRADE SIZE (FIXED)
+# 📊 FIXED DYNAMIC SIZE LOGIC (NO DRIFT)
 # =========================
 
 def get_trade_size(consec_loss, trade_no, prev_outcome):
@@ -102,22 +102,30 @@ def get_trade_size(consec_loss, trade_no, prev_outcome):
         return 0.25 if prev_outcome == "L" else 0.4
 
 
-# Get last TWO trades from DB (IMPORTANT FIX)
-if len(df) >= 2:
-    last_row = df.iloc[-1]
-    prev_row = df.iloc[-2]
-
-    last_trade_size = last_row["TradeSize"]
-    prev_outcome_db = last_row["Outcome"]
-else:
-    last_trade_size = None
-    prev_outcome_db = None
-
-# Base size (manual override OR system logic)
+# Base size (manual override OR system)
 if invest_pct_input > 0:
     base_trade_size = invest_pct_input
 else:
     base_trade_size = get_trade_size(consec_loss, trade_no, prev_outcome)
+
+# =========================
+# 🔥 CORE FIX: ONLY TRACK CONSECUTIVE LOSSES
+# =========================
+
+# IMPORTANT:
+# Only reduce after LOSS streak, NOT just previous loss
+
+if consec_loss > 0:
+    # scale down gradually based on streak
+    trade_size = base_trade_size * (0.7 ** consec_loss)
+else:
+    # WIN or reset → normal sizing
+    trade_size = base_trade_size
+
+# Safety cap
+trade_size = min(trade_size, 1.0)
+
+invested = capital * trade_size
 
 # =========================
 # 🔻 LOSS CARRY FORWARD FIX
